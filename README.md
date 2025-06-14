@@ -10,6 +10,38 @@ This tool is designed to be a set-and-forget solution. With its built-in schedul
 
 ---
 
+## Features
+
+### Machines Manager
+This screen is the main hub for managing your ZKTeco devices. You can add, edit, and view all connected machines. It allows you to configure connection details like IP address and port, and also link them to their corresponding records in Odoo by name to retrieve an Odoo-specific ID. From here, you can test connections, fetch data manually, and sync with Odoo.
+![Machine Configuration](static/img/ZKTeco%20list%20config.jpg)
+
+### Device Users
+The Device Users tab provides a comprehensive list of all user profiles downloaded from all your ZKTeco machines. It clearly displays which machine each user belongs to, along with their name and device-specific IDs. You can filter this list to show only users who haven't yet been synchronized to Odoo.
+![Machine Users](static/img/machine%20users.jpg)
+
+### Attendance Logs
+This tab shows a detailed log of every attendance record pulled from the devices. You can see the user ID, the exact timestamp of the punch, and critically, the time the record was successfully synchronized to Odoo. This provides a clear audit trail for your records.
+![Attendance Logs](static/img/attendance%20log.jpg)
+
+### Operation Logs
+The Logs tab offers a complete, timestamped audit trail of every operation the application performs, from starting the scheduler to fetching data and reporting errors. You can filter the logs by a specific machine and clear old entries to keep the history manageable.
+![Operation Logs](static/img/Logs.jpg)
+
+### Odoo Connection
+This screen is where you configure the connection to your Odoo database. You provide the URL, database name, username, and a password (or API key). The "Test Connection" button verifies these details and confirms that the proxy can communicate with your Odoo instance.
+![Odoo Connection](static/img/Odoo%20connection.jpg)
+
+### Settings
+The Settings tab allows you to customize the application's behavior. You can define how far back to look for records on the first data pull, set the batch size for Odoo uploads to manage server load, and configure the frequency of the automatic scheduler and data cleanup jobs.
+![Application Settings](static/img/Settings.jpg)
+
+### Scheduler
+This tab gives you full control over the automation process. You can start or stop the background scheduler, and at a glance, see its current status (Running/Stopped), when the last automated run occurred, and when the next one is scheduled. It also displays the logs from the most recent run for quick diagnostics.
+![Scheduler](static/img/scheduler.jpg)
+
+---
+
 ## Prerequisites
 
 To enable the synchronization between this tool and your Odoo database, you must first install the **"All in one Attendance machine/ZKTeco"** module from the official Odoo App Store.
