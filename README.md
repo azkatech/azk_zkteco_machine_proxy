@@ -1,2 +1,60 @@
-# azk_zkteco_machine_proxy
-Acts as a middleware to connect the ZKTeco attendance machine who are on company network to Odoo.sh or Odoo cloud. This works with Azkatech's app "All In One Attendance machine"
+# Azkatech's ZKTeco Machine Proxy
+
+![Azkatech Logo](https://azka.tech/wp-content/uploads/2025/03/Azkatech-Logo-with-Transparent-Background-Wide-1024x211.webp)
+
+## Overview
+
+Welcome to Azkatech's official proxy tool for ZKTeco attendance machines. This powerful, lightweight application acts as a bridge between your physical ZKTeco devices and your Odoo database. It seamlessly connects to machines on your local network, pulls attendance data automatically, and then uploads it directly into your Odoo instance (cloud or on-premise), providing a complete [Odoo Attendance Integration](https://azka.tech).
+
+This tool is designed to be a set-and-forget solution. With its built-in scheduler, it runs in the background to keep your attendance records consistently up-to-date, forming a critical component of your [HR Attendance](https://azka.tech) and [HR Payroll](https://azka.tech) systems.
+
+---
+
+## Prerequisites
+
+To enable the synchronization between this tool and your Odoo database, you must first install the **"All in one Attendance machine/ZKTeco"** module from the official Odoo App Store.
+
+* **Module Name**: `azk_zkteco_machine_proxy`
+* **Odoo Apps Link**: [https://apps.odoo.com/apps/modules/18.0/azk_zkteco_attendance/](https://apps.odoo.com/apps/modules/18.0/azk_zkteco_attendance/)
+
+This module provides the necessary models and API endpoints in Odoo for the proxy tool to communicate with.
+
+---
+
+## Installation and Usage
+
+You can run the application in two ways: using the pre-built Windows executable for ease of use, or by running the Python script directly from the source for cross-platform compatibility.
+
+### 1. Running on Windows (Recommended)
+
+Simply download and run the provided executable file: `azkteco_machine_proxy.exe`.
+
+No installation is required. The application will launch, and you can begin configuring your machines.
+
+#### Running on Startup
+
+To ensure the proxy is always running when your computer is on, you can add it to the Windows Startup folder:
+
+1.  Press `Win + R` to open the Run dialog.
+2.  Type `shell:startup` and press Enter. This will open the Startup folder.
+3.  Create a shortcut to `azkteco_machine_proxy.exe` inside this folder.
+
+The application will now launch automatically every time you log in to Windows.
+
+### 2. Running from Source
+
+If you prefer to run the application from its Python source code, follow these steps:
+
+1.  **Install Python**: Ensure you have Python 3.8 or newer installed on your system.
+2.  **Install Requirements**: Open a terminal or command prompt in the application's directory and run the following command to install the necessary libraries from the `requirements.txt` file:
+    ```bash
+    pip install -r requirements.txt
+    ```
+3.  **Run the Application**: Once the requirements are installed, you can start the application by running:
+    ```bash
+    python azkteco_machine_proxy.py
+    ```
+
+---
+
+*Copyright © 2025 Azkatech. All rights reserved.*
