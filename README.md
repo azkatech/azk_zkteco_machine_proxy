@@ -23,7 +23,7 @@ This module provides the necessary models and API endpoints in Odoo for the prox
 
 ## Installation and Usage
 
-You can run the application in two ways: using the pre-built Windows executable for ease of use, or by running the Python script directly from the source for cross-platform compatibility.
+You can run the application in three ways: using the pre-built Windows executable, running the Python script directly, or by creating your own executable.
 
 ### 1. Running on Windows (Recommended)
 
@@ -54,6 +54,20 @@ If you prefer to run the application from its Python source code, follow these s
     ```bash
     python azkteco_machine_proxy.py
     ```
+
+### 3. Creating a Windows Executable (Optional)
+
+You can create your own executable from the source code using `PyInstaller`.
+
+1.  **Install PyInstaller**: If you don't have it, install it via pip:
+    ```bash
+    pip install pyinstaller
+    ```
+2.  **Build the Executable**: Navigate to the application's directory in your terminal and run the following command. The `-w` flag prevents the console window from opening when you run the application.
+    ```bash
+    pyinstaller --onefile -w azkteco_machine_proxy.py
+    ```
+3.  Your new `azkteco_machine_proxy.exe` will be located in the `dist` folder that PyInstaller creates.
 
 ---
 
