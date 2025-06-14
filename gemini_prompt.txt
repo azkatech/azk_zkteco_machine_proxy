@@ -1,0 +1,60 @@
+Here is the prompt that would generate the application in this thread:
+
+Generate a complete, stand-alone Python application using the built-in tkinter library. The application, titled "Azkatech's ZKTeco Machine proxy", will serve as a local proxy to connect ZKTeco attendance machines with an Odoo ERP system.
+
+The application must be styled with the following color scheme:
+
+Primary/Accent (Orange): #fcaf2a
+Text/Foreground (Black): #100e0e
+Background (Grey): #dedede
+The application should have a main tabbed interface organized as follows:
+
+Machines Manager Tab:
+
+An "Add new Machine" section with fields for: Name, IP Address, Port, Password, Odoo Machine Name, and Odoo Machine ID.
+Include a "Get Odoo ID" button next to the "Odoo Machine Name" field. This button should use the configured Odoo credentials to search for a machine by the given name. If one is found, it populates the "Odoo Machine ID" field. It should show a warning if none or multiple are found.
+A table displaying all configured machines with their details.
+Action buttons below the table, organized into two groups:
+Machine Actions: "Test Selected", "Edit Selected", "Delete Selected". The "Test" button should attempt a live connection using the pyzk library and show a success or error messagebox.
+Data Actions: "Fetch New Data" (to manually trigger a data pull for the selected machine).
+A status bar at the bottom to show real-time progress messages.
+Data Tab (as a nested notebook):
+
+Device Users Tab: A table showing all users downloaded from all machines (Machine Name, User ID, Name, UID, Synched Time).
+Attendance Logs Tab: A table showing all attendance records from all machines (Machine Name, User ID, Timestamp, Synched Time).
+Logs Tab: A table showing application and operation logs (Machine, Timestamp, Operation, Message). Include controls to filter by machine and to delete logs (all or older than a set period).
+Configuration Tab (as a nested notebook):
+
+Odoo Connection Tab:
+Fields for Odoo Server URL, DB Name, Username, and Password, with a "Save" button.
+A "Test Connection" button that verifies the credentials against the Odoo common.version() endpoint and displays the result (success/failure and JSON response) in a read-only text area.
+A promotional section on the right side with the text: "This Software syncs with Azkatech's all-in-one Attendance integration for Odoo, which can be found on this link:", followed by a clickable link to https://apps.odoo.com/apps/modules/18.0/azk_zkteco_attendance.
+Display the Azkatech logo (provided) below the link, and under the logo, add the copyright text "© 2025 Azkatech".
+Settings Tab:
+"Days to Go back On first pull": A dropdown with options (1, 31, 60), defaulting to 31.
+"Batch size to upload to Odoo": A dropdown (1, 50, 100, 500, 1000), defaulting to 1000.
+"Clean logs older than": A dropdown (5, 30, 60, 90 days), defaulting to 30.
+"Delete attendance older than": A dropdown (30, 60, 90, 180, 360 days), defaulting to 180.
+A "Save Settings" button.
+Scheduler Tab:
+
+Controls to "Start" and "Stop" the scheduler. The scheduler should not start by default.
+Display for scheduler Status, Last Run time, and Next Run time.
+An "Auto sync to Odoo" checkbox (checked by default).
+Core Functionality & Logic:
+
+Database: Use a single SQLite database file (local_zkteco_proxy.db) for all data persistence. This includes tables for zkteco_machines, users, attendance, odoo_config, settings, and logs. The users and attendance tables must include a synched_time datetime column, which is NULL by default.
+Data Fetching: The "Fetch New Data" action (and the scheduler) should connect to a ZKTeco device, download all users (inserting or replacing existing ones), and download only new attendance records based on the timestamp of the last record stored locally. If no records exist for a machine, it should use the "Days to go back" setting.
+Odoo Synchronization:
+This process must be triggered automatically by the scheduler if "Auto sync to Odoo" is checked.
+It must connect to Odoo using the configured credentials.
+It must find all users and attendance records where synched_time is NULL.
+It should create corresponding records in Odoo's azk.machine.proxy.users and azk.machine.proxy.attendance models.
+The attendance sync should respect the "Batch Size" setting.
+After each record or batch is successfully created in Odoo, its synched_time in the local SQLite database must be updated immediately.
+The process should log progress updates (e.g., "Uploaded 50 of X records").
+Scheduler Job: When running, the scheduler should trigger two main jobs based on its delay setting ("Scheduler Delay" from settings):
+Fetch new data from all configured machines.
+Perform automatic cleanup of old logs and attendance records based on the "Settings" values.
+Threading: All long-running operations (device connections, data fetching, Odoo sync) must be executed in background threads to keep the UI responsive.
+Dependencies: The application will require the pyzk and pytz libraries. The code should import them directly without a try...except ImportError block.

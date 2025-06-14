@@ -57,4 +57,10 @@ If you prefer to run the application from its Python source code, follow these s
 
 ---
 
+### A Note on Generation
+
+This program was generated using vibe coding with Gemini. The prompt used to generate the final version of this application can be found in the file: [gemini_prompt.txt](gemini_prompt.txt).
+
+---
+
 *Copyright © 2025 Azkatech. All rights reserved.*
