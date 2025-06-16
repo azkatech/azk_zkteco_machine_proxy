@@ -771,7 +771,7 @@ class App(tk.Tk):
         self.log_operation("Test Connection", f"Attempting to connect to {conn_dict['name']}...", conn_id)
         zk = None
         try:
-            zk = ZK(conn_dict['ip'], port=int(conn_dict['port']), password=int(conn_dict['password']), timeout=5)
+            zk = ZK(conn_dict['ip'], port=int(conn_dict['port']), password=conn_dict['password'], timeout=5)
             conn = zk.connect()
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             serial_num = conn.get_serialnumber()
@@ -807,7 +807,7 @@ class App(tk.Tk):
 
         zk = None
         try:
-            zk = ZK(conn_dict['ip'], port=int(conn_dict['port']), password=int(conn_dict['password']), timeout=15)
+            zk = ZK(conn_dict['ip'], port=int(conn_dict['port']), password=conn_dict['password'], timeout=15)
             self.log_operation("Fetch Data", "Connecting to device...", conn_id)
             conn = zk.connect()
             self.log_operation("Fetch Data", "Synchronizing users...", conn_id)
