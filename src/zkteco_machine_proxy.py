@@ -40,9 +40,16 @@ def init_db():
                 serial_number TEXT,
                 last_connected TEXT,
                 odoo_machine_name TEXT,
-                odoo_machine_id INTEGER
+                odoo_machine_id INTEGER,
+                machine_timezone TEXT
             )
         ''')
+        
+        # Add machine_timezone column for backward compatibility
+        try:
+            cursor.execute("SELECT machine_timezone FROM zkteco_machines LIMIT 1")
+        except sqlite3.OperationalError:
+            cursor.execute("ALTER TABLE zkteco_machines ADD COLUMN machine_timezone TEXT")
         
         # Create odoo config table
         cursor.execute('''
@@ -86,6 +93,16 @@ def init_db():
                 UNIQUE(connection_id, user_id, timestamp)
             )
         ''')
+
+        # Add synched_time columns for backward compatibility
+        try:
+            cursor.execute("SELECT synched_time FROM users LIMIT 1")
+        except sqlite3.OperationalError:
+            cursor.execute("ALTER TABLE users ADD COLUMN synched_time DATETIME")
+        try:
+            cursor.execute("SELECT synched_time FROM attendance LIMIT 1")
+        except sqlite3.OperationalError:
+            cursor.execute("ALTER TABLE attendance ADD COLUMN synched_time DATETIME")
 
         # Create logs table
         cursor.execute('''
@@ -184,7 +201,7 @@ class App(tk.Tk):
         # Handle window closing
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-        # Auto-start scheduler
+        # Start the scheduler automatically on launch
         self.start_scheduler()
 
     def on_closing(self):
@@ -232,11 +249,15 @@ class App(tk.Tk):
         self.odoo_id_entry = ttk.Entry(self.add_edit_frame)
         self.odoo_id_entry.grid(row=3, column=3, padx=5, pady=5, sticky="ew")
 
+        ttk.Label(self.add_edit_frame, text="Machine Timezone:").grid(row=4, column=0, padx=5, pady=5, sticky="w")
+        self.timezone_entry = ttk.Entry(self.add_edit_frame, state="readonly")
+        self.timezone_entry.grid(row=4, column=1, padx=5, pady=5, sticky="ew")
+
         self.add_edit_frame.columnconfigure(1, weight=1)
         self.clear_connection_entries() # Set defaults
         
         self.action_button_frame = ttk.Frame(self.add_edit_frame)
-        self.action_button_frame.grid(row=4, column=0, columnspan=4, pady=10)
+        self.action_button_frame.grid(row=5, column=0, columnspan=4, pady=10)
         
         self.add_button = ttk.Button(self.action_button_frame, text="Add Machine", command=self.add_connection)
         self.save_button = ttk.Button(self.action_button_frame, text="Save Changes", command=self.save_connection_changes)
@@ -246,15 +267,25 @@ class App(tk.Tk):
         table_frame = ttk.Frame(self.machines_manager_frame)
         table_frame.pack(fill="both", expand=True, padx=5, pady=5)
 
-        columns = ('name', 'ip', 'port', 'odoo_name', 'odoo_id', 'serial', 'last_conn')
+        columns = ('name', 'ip', 'port', 'odoo_name', 'odoo_id', 'timezone', 'serial', 'last_conn')
         self.connections_table = ttk.Treeview(table_frame, columns=columns, show='headings')
         self.connections_table.heading('name', text='Name')
         self.connections_table.heading('ip', text='IP Address')
         self.connections_table.heading('port', text='Port')
         self.connections_table.heading('odoo_name', text='Odoo Name')
         self.connections_table.heading('odoo_id', text='Odoo ID')
+        self.connections_table.heading('timezone', text='Timezone')
         self.connections_table.heading('serial', text='Serial Number')
         self.connections_table.heading('last_conn', text='Last Connected')
+        self.connections_table.column('name', width=120)
+        self.connections_table.column('ip', width=100)
+        self.connections_table.column('port', width=50)
+        self.connections_table.column('odoo_name', width=120)
+        self.connections_table.column('odoo_id', width=60)
+        self.connections_table.column('timezone', width=120)
+        self.connections_table.column('serial', width=120)
+        self.connections_table.column('last_conn', width=130)
+
 
         scrollbar = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=self.connections_table.yview)
         scrollbar.pack(side="right", fill="y")
@@ -318,13 +349,24 @@ class App(tk.Tk):
 
         ttk.Checkbutton(filter_frame, text="Show only records to sync", variable=self.attendance_to_sync_var, command=self.update_attendance_table).pack(side="left", padx=10)
 
+        # Deletion controls for attendance
+        delete_frame = ttk.Frame(filter_frame)
+        delete_frame.pack(side="right")
+
+        ttk.Button(delete_frame, text="Delete All", command=self.delete_all_attendance).pack(side="right", padx=5)
+        ttk.Button(delete_frame, text="Delete", command=self.delete_old_attendance).pack(side="right", padx=2)
+        self.att_delete_period = ttk.Combobox(delete_frame, state="readonly", width=10, values=["30 Days", "60 Days", "90 Days", "180 Days", "365 Days"])
+        self.att_delete_period.pack(side="right")
+        self.att_delete_period.set("90 Days") 
+        ttk.Label(delete_frame, text="Delete Older Than:").pack(side="right", padx=2)
+
         table_frame = ttk.Frame(self.attendance_frame)
         table_frame.pack(fill="both", expand=True, padx=5, pady=5)
         columns = ('machine_name', 'user_id', 'timestamp', 'synched_time')
         self.attendance_table = ttk.Treeview(table_frame, columns=columns, show='headings')
         self.attendance_table.heading('machine_name', text='Machine')
         self.attendance_table.heading('user_id', text='User ID')
-        self.attendance_table.heading('timestamp', text='Timestamp (UTC)')
+        self.attendance_table.heading('timestamp', text='Timestamp (Machine Time)')
         self.attendance_table.heading('synched_time', text='Synched Time')
         scrollbar = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=self.attendance_table.yview)
         scrollbar.pack(side="right", fill="y")
@@ -420,7 +462,7 @@ class App(tk.Tk):
 
         # Days to go back
         ttk.Label(settings_frame, text="Days to Go Back on First Pull:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
-        self.setting_days_back = ttk.Combobox(settings_frame, state="readonly", values=[1, 31, 60])
+        self.setting_days_back = ttk.Combobox(settings_frame, state="readonly", values=[1, 31, 60, 90])
         self.setting_days_back.grid(row=0, column=1, sticky="w", padx=5, pady=5)
 
         # Batch size
@@ -490,7 +532,6 @@ class App(tk.Tk):
         
         # --- Right Column: Promotional Message ---
         right_column_frame = ttk.Frame(main_odoo_frame)
-        right_column_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
         right_column_frame.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
 
         promo_frame = ttk.LabelFrame(right_column_frame, text="Azkatech Integration", padding="15")
@@ -504,6 +545,13 @@ class App(tk.Tk):
         link_label = ttk.Label(promo_frame, text=link_url, foreground="blue", cursor="hand2", wraplength=300, justify="left")
         link_label.pack(pady=5, anchor="w")
         link_label.bind("<Button-1>", lambda e: self.open_link(link_url))
+
+        # This is a placeholder for a logo. You could load an image here if you have one.
+        logo_label = ttk.Label(promo_frame, text="AZKATECH", font=("TkDefaultFont", 16, "bold"))
+        logo_label.pack(pady=10)
+        
+        copyright_label = ttk.Label(promo_frame, text="© 2025 Azkatech")
+        copyright_label.pack(side="bottom", pady=(10,5))
 
     def open_link(self, url):
         webbrowser.open_new(url)
@@ -524,6 +572,10 @@ class App(tk.Tk):
     def load_odoo_details_from_db(self):
         rows = db_execute("SELECT key, value FROM odoo_config", fetch='all')
         self.odoo_details = {row['key']: row['value'] for row in rows}
+        self.odoo_url_entry.delete(0, tk.END)
+        self.odoo_db_entry.delete(0, tk.END)
+        self.odoo_user_entry.delete(0, tk.END)
+        self.odoo_pass_entry.delete(0, tk.END)
         self.odoo_url_entry.insert(0, self.odoo_details.get("url", ""))
         self.odoo_db_entry.insert(0, self.odoo_details.get("db", ""))
         self.odoo_user_entry.insert(0, self.odoo_details.get("username", ""))
@@ -542,9 +594,11 @@ class App(tk.Tk):
     
     def update_connections_table(self):
         self.connections_table.delete(*self.connections_table.get_children())
+        self.load_connections_from_db() # Reload from DB to get fresh data
         for conn_dict in self.connections_list:
             values = (conn_dict.get('name', ''), conn_dict.get('ip', ''), conn_dict.get('port', ''),
                       conn_dict.get('odoo_machine_name', ''), conn_dict.get('odoo_machine_id', ''),
+                      conn_dict.get('machine_timezone', 'N/A'),
                       conn_dict.get('serial_number', 'N/A'), conn_dict.get('last_connected', 'N/A'))
             self.connections_table.insert('', tk.END, iid=conn_dict['id'], values=values)
 
@@ -574,7 +628,8 @@ class App(tk.Tk):
     def update_attendance_table(self, event=None):
         self.attendance_table.delete(*self.attendance_table.get_children())
         selected_machine = self.attendance_machine_filter.get()
-        query = "SELECT a.user_id, a.timestamp, a.synched_time, c.name as machine_name FROM attendance a JOIN zkteco_machines c ON a.connection_id = c.id"
+        query = """SELECT a.user_id, a.timestamp, a.synched_time, c.name as machine_name FROM attendance a 
+        JOIN zkteco_machines c ON a.connection_id = c.id"""
         
         where_clauses = []
         params = []
@@ -589,10 +644,11 @@ class App(tk.Tk):
         if where_clauses:
             query += " WHERE " + " AND ".join(where_clauses)
 
-        query += " ORDER BY a.timestamp DESC"
+        query += " ORDER BY a.timestamp desc"
 
         for row in db_execute(query, tuple(params), fetch='all'):
-            self.attendance_table.insert('', tk.END, values=(row['machine_name'], row['user_id'], row['timestamp'], row['synched_time'] or ''))
+            # Insert at the top (index 0) to show newest first
+            self.attendance_table.insert('', 0, values=(row['machine_name'], row['user_id'], row['timestamp'], row['synched_time'] or ''))
 
     def update_logs_table(self, event=None):
         self.logs_table.delete(*self.logs_table.get_children())
@@ -608,12 +664,15 @@ class App(tk.Tk):
 
         for row in db_execute(query, params, fetch='all'):
             machine_name = row['machine_name'] if row['machine_name'] else "System"
-            self.logs_table.insert('', tk.END, values=(machine_name, row['timestamp'], row['operation'], row['message']))
+            # Insert at the top (index 0) to show newest first
+            self.logs_table.insert('', 0, values=(machine_name, row['timestamp'], row['operation'], row['message']))
 
     def _update_last_run_logs_table(self, run_start_time):
         self.last_run_logs_table.delete(*self.last_run_logs_table.get_children())
         start_time_str = run_start_time.strftime("%Y-%m-%d %H:%M:%S")
-        query = "SELECT l.timestamp, l.operation, l.message, c.name as machine_name FROM logs l LEFT JOIN zkteco_machines c ON l.connection_id = c.id WHERE l.timestamp >= ? ORDER BY l.timestamp ASC"
+        query = """SELECT l.timestamp, l.operation, l.message, c.name as machine_name 
+        FROM logs l LEFT JOIN zkteco_machines c ON l.connection_id = c.id WHERE l.timestamp >= ? 
+        ORDER BY l.timestamp desc"""
         
         for row in db_execute(query, (start_time_str,), fetch='all'):
             machine_name = row['machine_name'] if row['machine_name'] else "System"
@@ -627,6 +686,9 @@ class App(tk.Tk):
         self.pass_entry.delete(0, tk.END)
         self.odoo_name_entry.delete(0, tk.END)
         self.odoo_id_entry.delete(0, tk.END)
+        self.timezone_entry.config(state="normal")
+        self.timezone_entry.delete(0, tk.END)
+        self.timezone_entry.config(state="readonly")
         self.port_entry.insert(0, "4370")
         self.pass_entry.insert(0, "0")
 
@@ -636,7 +698,9 @@ class App(tk.Tk):
         port = self.port_entry.get().strip() or "4370"
         password = self.pass_entry.get()
         odoo_name = self.odoo_name_entry.get().strip()
-        odoo_id = self.odoo_id_entry.get().strip() or None
+        odoo_id_str = self.odoo_id_entry.get().strip()
+        odoo_id = int(odoo_id_str) if odoo_id_str.isdigit() else None
+
         if not name or not ip:
             messagebox.showwarning("Warning", "Name and IP Address are required.")
             return
@@ -660,6 +724,9 @@ class App(tk.Tk):
         self.pass_entry.insert(0, conn_details['password'])
         self.odoo_name_entry.insert(0, conn_details['odoo_machine_name'] or '')
         self.odoo_id_entry.insert(0, str(conn_details['odoo_machine_id'] or ''))
+        self.timezone_entry.config(state="normal")
+        self.timezone_entry.insert(0, conn_details['machine_timezone'] or '')
+        self.timezone_entry.config(state="readonly")
 
         self.add_edit_frame.config(text="Edit Machine")
         self.add_button.pack_forget()
@@ -673,7 +740,9 @@ class App(tk.Tk):
         port = self.port_entry.get().strip() or "4370"
         password = self.pass_entry.get()
         odoo_name = self.odoo_name_entry.get().strip()
-        odoo_id = self.odoo_id_entry.get().strip() or None
+        odoo_id_str = self.odoo_id_entry.get().strip()
+        odoo_id = int(odoo_id_str) if odoo_id_str.isdigit() else None
+
         if not name or not ip:
             messagebox.showwarning("Warning", "Name and IP Address are required.")
             return
@@ -699,7 +768,7 @@ class App(tk.Tk):
             db_execute("DELETE FROM zkteco_machines WHERE id = ?", (int(selected_iid),))
             self.refresh_all_data()
 
-    # --- Log Methods ---
+    # --- Log and Data Cleanup Methods ---
     def log_operation(self, operation, message, conn_id=None):
         """Adds a record to the logs table and refreshes the UI."""
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -752,6 +821,44 @@ class App(tk.Tk):
             db_execute(query, tuple(params))
             self.update_logs_table()
 
+    def delete_all_attendance(self):
+        """Deletes all attendance records after confirmation."""
+        if messagebox.askyesno("Confirm Deletion", "Are you sure you want to delete ALL attendance records from the local database? This cannot be undone."):
+            db_execute("DELETE FROM attendance")
+            self.log_operation("Data Cleanup", "Deleted all attendance records.")
+            self.update_attendance_table()
+
+    def delete_old_attendance(self):
+        """Deletes attendance records older than the selected period."""
+        period = self.att_delete_period.get()
+        days_map = {"30 Days": 30, "60 Days": 60, "90 Days": 90, "180 Days": 180, "365 Days": 365}
+        days = days_map.get(period)
+        if not days:
+            messagebox.showwarning("Warning", "Please select a valid period to delete.")
+            return
+        
+        filter_machine_name = self.attendance_machine_filter.get()
+        confirm_message = f"Are you sure you want to delete attendance records older than {days} day(s)"
+        query = "DELETE FROM attendance WHERE timestamp < ?"
+        params = [datetime.now() - timedelta(days=days)]
+
+        if filter_machine_name != "All":
+            conn_id = self.get_connection_id_from_name(filter_machine_name)
+            if conn_id:
+                query += " AND connection_id = ?"
+                params.append(conn_id)
+                confirm_message += f" for machine '{filter_machine_name}'?"
+            else: # Should not happen if UI is consistent
+                confirm_message += "?"
+        else:
+            confirm_message += " for ALL machines?"
+        
+        if messagebox.askyesno("Confirm Deletion", confirm_message):
+            db_execute(query, tuple(params))
+            self.log_operation("Data Cleanup", f"Deleted attendance older than {days} days for '{filter_machine_name}'.")
+            self.update_attendance_table()
+
+
     # --- Device Interaction ---
     def _get_selected_connection(self):
         selected_iid = self.connections_table.focus()
@@ -777,7 +884,7 @@ class App(tk.Tk):
             serial_num = conn.get_serialnumber()
             db_execute("UPDATE zkteco_machines SET last_connected = ?, serial_number = ? WHERE id = ?", (now, serial_num, conn_id))
             self.log_operation("Test Connection", f"Success! Serial: {serial_num}", conn_id)
-            self.after(0, self.refresh_all_data)
+            self.after(0, self.update_connections_table)
             self.after(0, lambda: messagebox.showinfo("Success", f"Successfully connected to {conn_dict['name']}!"))
         except Exception as e:
             self.log_operation("Test Connection", f"Failed: {e}", conn_id)
@@ -805,6 +912,9 @@ class App(tk.Tk):
             date_from = datetime.now() - timedelta(days=days_back)
             self.log_operation("Fetch Data", f"No previous records. Fetching last {days_back} days.", conn_id)
 
+        #always pull one full day
+        date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
+
         zk = None
         try:
             zk = ZK(conn_dict['ip'], port=int(conn_dict['port']), password=conn_dict['password'], timeout=15)
@@ -813,28 +923,31 @@ class App(tk.Tk):
             self.log_operation("Fetch Data", "Synchronizing users...", conn_id)
             users = conn.get_users()
             user_count = 0
-            user_query = "INSERT OR REPLACE INTO users (connection_id, uid, user_id, name) VALUES (?, ?, ?, ?)"
+            user_query = "INSERT OR REPLACE INTO users (connection_id, uid, user_id, name, synched_time) VALUES (?, ?, ?, ?, (SELECT synched_time FROM users WHERE connection_id=? AND user_id=?))"
             for user in users:
-                db_execute(user_query, (conn_id, user.uid, user.user_id, user.name))
+                db_execute(user_query, (conn_id, user.uid, user.user_id, user.name, conn_id, user.user_id))
                 user_count += 1
             self.log_operation("Fetch Data", f"Users synchronized: {user_count}", conn_id)
 
             self.log_operation("Fetch Data", "Downloading attendance...", conn_id)
             all_device_attendance = conn.get_attendance()
-            new_attendance_records = [att for att in all_device_attendance if att.timestamp > date_from]
+            now = datetime.now()
+            
+            new_attendance_records = [att for att in all_device_attendance if att.timestamp > date_from and att.timestamp <= now]
             
             att_count = 0
             if new_attendance_records:
                 att_query = "INSERT OR IGNORE INTO attendance (connection_id, user_id, timestamp) VALUES (?, ?, ?)"
                 for att in new_attendance_records:
-                    utc_dt_str = att.timestamp.strftime("%Y-%m-%d %H:%M:%S")
-                    db_execute(att_query, (conn_id, att.user_id, utc_dt_str))
+                    # The timestamp from the device is naive, representing local time on the device
+                    timestamp_str = att.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                    db_execute(att_query, (conn_id, att.user_id, timestamp_str))
                     att_count += 1
             
             self.log_operation("Success", f"Fetch complete. New records: {att_count}", conn_id)
             self.after(0, self.refresh_all_data)
             if is_manual:
-                self.after(0, lambda: messagebox.showinfo("Success", f"Data fetch complete for {conn_dict['name']}.\n- Users: {user_count}\n- New records: {att_count}"))
+                self.after(0, lambda: messagebox.showinfo("Success", f"Data fetch complete for {conn_dict['name']}.\n- Users: {user_count}\n- New attendance: {att_count}"))
 
         except Exception as e:
             self.log_operation("Error", f"Fetch Failed: {e}", conn_id)
@@ -866,6 +979,7 @@ class App(tk.Tk):
         query = "INSERT OR REPLACE INTO odoo_config (key, value) VALUES (?, ?)"
         for key, value in details.items():
             db_execute(query, (key, value))
+        self.load_odoo_details_from_db() # Reload details after saving
         messagebox.showinfo("Success", "Odoo details saved successfully.")
 
     def test_odoo_connection(self):
@@ -879,19 +993,34 @@ class App(tk.Tk):
 
         if not all([url, db, username, password]):
             self.odoo_result_text.insert(tk.END, "Error: Please fill in all Odoo connection details.")
-            self.odoo_result_text.config(bg='#FFCCCC') # Light red
+            self.odoo_result_text.config(state='disabled', bg='#FFCCCC') # Light red
             return
         
         try:
+            self.odoo_result_text.insert(tk.END, f"Attempting to connect to {url}...\n")
+            self.update()
+
             common = xmlrpc.client.ServerProxy(f'{url}/xmlrpc/2/common')
             version_info = common.version()
             
+            self.odoo_result_text.insert(tk.END, "Server reached. Checking version...\n")
+            self.odoo_result_text.insert(tk.END, f"  - Odoo Version: {version_info.get('server_version')}\n")
+            self.update()
+
+            self.odoo_result_text.insert(tk.END, "Authenticating...\n")
+            self.update()
+            uid = common.authenticate(db, username, password, {})
+            
+            if not uid:
+                raise Exception("Authentication failed. Please check DB, username, and password.")
+
+            self.odoo_result_text.insert(tk.END, f"Authentication successful! User ID: {uid}\n\n")
+            self.odoo_result_text.insert(tk.END, "Connection test successful!")
             self.odoo_result_text.config(bg='#CCFFCC') # Light green
-            self.odoo_result_text.insert(tk.END, "Connection Successful!\n\n")
-            self.odoo_result_text.insert(tk.END, json.dumps(version_info, indent=4))
+
         except Exception as e:
             self.odoo_result_text.config(bg='#FFCCCC') # Light red
-            self.odoo_result_text.insert(tk.END, f"Connection Failed:\n\n{e}")
+            self.odoo_result_text.insert(tk.END, f"\nConnection Failed:\n\n{e}")
         finally:
             self.odoo_result_text.config(state='disabled')
 
@@ -926,22 +1055,28 @@ class App(tk.Tk):
             models = xmlrpc.client.ServerProxy(f'{url}/xmlrpc/2/object')
             
             self.log_operation("Link to Odoo", f"Searching for '{odoo_machine_name}' in Odoo.", conn_id)
-            ids = models.execute_kw(db, uid, password, 'azk.machine', 'search', [[['name', '=', odoo_machine_name]]])
+            search_read_result = models.execute_kw(db, uid, password, 'azk.machine', 'search_read', 
+                                                   [[['name', '=', odoo_machine_name]]], 
+                                                   {'fields': ['id', 'timezone'], 'limit': 1})
 
-            if not ids:
+            if not search_read_result:
                 self.after(0, lambda: messagebox.showerror("Not Found", f"No machine named '{odoo_machine_name}' found in Odoo."))
                 self.log_operation("Link to Odoo", f"Machine '{odoo_machine_name}' not found.", conn_id)
                 return
-            if len(ids) > 1:
+            if len(search_read_result) > 1:
                 self.after(0, lambda: messagebox.showwarning("Multiple Found", f"Multiple machines found with name '{odoo_machine_name}'."))
                 self.log_operation("Link to Odoo", "Multiple machines found. Aborting.", conn_id)
                 return
 
-            machine_id_in_odoo = ids[0]
-            db_execute("UPDATE zkteco_machines SET odoo_machine_id = ? WHERE id = ?", (machine_id_in_odoo, conn_id))
+            odoo_data = search_read_result[0]
+            machine_id_in_odoo = odoo_data['id']
+            machine_timezone = odoo_data.get('timezone', False) or None # Odoo returns False for empty selection fields
             
-            self.log_operation("Success", f"Link successful. Odoo ID {machine_id_in_odoo} saved locally.", conn_id)
-            self.after(0, self.refresh_all_data)
+            db_execute("UPDATE zkteco_machines SET odoo_machine_id = ?, machine_timezone = ? WHERE id = ?", 
+                       (machine_id_in_odoo, machine_timezone, conn_id))
+            
+            self.log_operation("Success", f"Link successful. Odoo ID {machine_id_in_odoo} and TZ '{machine_timezone}' saved.", conn_id)
+            self.after(0, self.update_connections_table)
             self.after(0, lambda: messagebox.showinfo("Success", f"Successfully linked to Odoo machine '{odoo_machine_name}' (ID: {machine_id_in_odoo})."))
 
         except Exception as e:
@@ -1014,7 +1149,7 @@ class App(tk.Tk):
                 self.log_operation("Odoo Sync", f"Successfully synchronized {synced_count} user(s).")
 
             # 3. Sync Attendance
-            unsynced_attendance = db_execute("SELECT a.*, m.odoo_machine_id FROM attendance a JOIN zkteco_machines m ON a.connection_id = m.id WHERE a.synched_time IS NULL", fetch='all')
+            unsynced_attendance = db_execute("SELECT a.*, m.odoo_machine_id, m.machine_timezone FROM attendance a JOIN zkteco_machines m ON a.connection_id = m.id WHERE a.synched_time IS NULL", fetch='all')
             if not unsynced_attendance:
                 self.log_operation("Odoo Sync", "No new attendance records to synchronize.")
             else:
@@ -1030,9 +1165,23 @@ class App(tk.Tk):
                         self.log_operation("Odoo Sync", f"Skipping attendance for user {att['user_id']} because their machine is not linked.", att['connection_id'])
                         continue
                     
+                    # The timestamp in the database is the naive time from the device.
+                    # Odoo expects UTC. We must convert it.
+                    timestamp_to_send = att['timestamp']
+                    if att['machine_timezone']:
+                        try:
+                            # Assume the stored naive time is in the machine's local timezone
+                            local_tz = pytz.timezone(att['machine_timezone'])
+                            naive_timestamp = datetime.strptime(att['timestamp'], "%Y-%m-%d %H:%M:%S")
+                            local_dt = local_tz.localize(naive_timestamp, is_dst=None) # is_dst=None handles ambiguous times
+                            utc_dt = local_dt.astimezone(pytz.utc)
+                            timestamp_to_send = utc_dt.strftime("%Y-%m-%d %H:%M:%S")
+                        except Exception as e:
+                            self.log_operation("Error", f"Could not process timezone '{att['machine_timezone']}' for record. Sending naive time. Error: {e}", att['connection_id'])
+                    
                     payload_batch.append({
                         'user_id': att['user_id'],
-                        'timestamp': att['timestamp'],
+                        'timestamp': timestamp_to_send,
                         'machine_id': att['odoo_machine_id'],
                     })
                     record_id_batch.append(att['id'])
@@ -1106,7 +1255,12 @@ class App(tk.Tk):
 
     def scheduler_loop(self):
         """Runs in a background thread, triggering data fetches."""
+        # Initial wait before the first run
+        time.sleep(5) 
+        
         while self.scheduler_running.is_set():
+            self.after(0, self._execute_scheduled_run)
+            
             delay_seconds = int(self.settings.get("scheduler_delay", 10)) * 60
             # Wait for the interval, but check for stop event every second
             # This makes the shutdown more responsive
@@ -1115,9 +1269,6 @@ class App(tk.Tk):
                     return
                 time.sleep(1)
             
-            if self.scheduler_running.is_set():
-                self.after(0, self._execute_scheduled_run)
-
     def _execute_scheduled_run(self):
         """Scheduled by the loop to run in the main UI thread."""
         if not self.scheduler_running.is_set():
@@ -1133,8 +1284,11 @@ class App(tk.Tk):
             # Run each machine fetch in its own thread to avoid one failed machine blocking others
             threading.Thread(target=self._fetch_data_for_machine, args=(machine['id'], dict(machine), False), daemon=True).start()
 
+        # After fetching, run the sync to Odoo
+        threading.Thread(target=self._sync_to_odoo_thread, daemon=True).start()
+
         self._clean_old_logs()
-        self._clean_old_attendance()
+        self._clean_old_attendance_from_settings()
 
         self.log_operation("Scheduler", "Scheduled run finished.")
         self.after(0, self._update_last_run_logs_table, run_start_time)
@@ -1147,7 +1301,7 @@ class App(tk.Tk):
         db_execute("DELETE FROM logs WHERE timestamp < ?", (cutoff_date_str,))
         self.log_operation("Scheduler", f"Cleaned logs older than {days} days.")
     
-    def _clean_old_attendance(self):
+    def _clean_old_attendance_from_settings(self):
         days = int(self.settings.get("delete_attendance_days", 180))
         cutoff_date = datetime.now() - timedelta(days=days)
         cutoff_date_str = cutoff_date.strftime("%Y-%m-%d %H:%M:%S")

@@ -1,0 +1,1 @@
+c:\workbench\projects\tests\genai\venv\Scripts\pyinstaller.exe --onefile -w ..\src\zkteco_machine_proxy.py
