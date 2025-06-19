@@ -20,6 +20,7 @@ import pytz
 
 # --- Configuration ---
 DB_FILE = 'local_zkteco_proxy.db'
+VERSION_NUM = '1.0.1'
 
 # --- Database Functions ---
 def init_db():
@@ -550,8 +551,16 @@ class App(tk.Tk):
         logo_label = ttk.Label(promo_frame, text="AZKATECH", font=("TkDefaultFont", 16, "bold"))
         logo_label.pack(pady=10)
         
-        copyright_label = ttk.Label(promo_frame, text="© 2025 Azkatech")
-        copyright_label.pack(side="bottom", pady=(10,5))
+        # Container for copyright and version
+        footer_frame = ttk.Frame(promo_frame)
+        footer_frame.pack(side="bottom", pady=(10,5))
+        
+        copyright_label = ttk.Label(footer_frame, text="© 2025 Azkatech")
+        copyright_label.pack()
+
+        version_label = ttk.Label(footer_frame, text=f"Version: {VERSION_NUM}")
+        version_label.pack()
+
 
     def open_link(self, url):
         webbrowser.open_new(url)
