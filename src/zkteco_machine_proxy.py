@@ -20,7 +20,7 @@ import pytz
 
 # --- Configuration ---
 DB_FILE = 'local_zkteco_proxy.db'
-VERSION_NUM = '1.0.1'
+VERSION_NUM = '1.0.2'
 
 # --- Database Functions ---
 def init_db():
@@ -88,6 +88,7 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 connection_id INTEGER NOT NULL,
                 user_id TEXT NOT NULL,
+                att_id TEXT NOT NULL,
                 timestamp DATETIME NOT NULL,
                 synched_time DATETIME,
                 FOREIGN KEY (connection_id) REFERENCES zkteco_machines (id) ON DELETE CASCADE,
@@ -104,6 +105,10 @@ def init_db():
             cursor.execute("SELECT synched_time FROM attendance LIMIT 1")
         except sqlite3.OperationalError:
             cursor.execute("ALTER TABLE attendance ADD COLUMN synched_time DATETIME")
+        try:
+            cursor.execute("SELECT att_id FROM attendance LIMIT 1")
+        except sqlite3.OperationalError:
+            cursor.execute("ALTER TABLE attendance ADD COLUMN att_id TEXT")
 
         # Create logs table
         cursor.execute('''
@@ -463,7 +468,7 @@ class App(tk.Tk):
 
         # Days to go back
         ttk.Label(settings_frame, text="Days to Go Back on First Pull:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
-        self.setting_days_back = ttk.Combobox(settings_frame, state="readonly", values=[1, 31, 60, 90])
+        self.setting_days_back = ttk.Combobox(settings_frame, state="readonly", values=[1, 5, 10, 31, 60, 90])
         self.setting_days_back.grid(row=0, column=1, sticky="w", padx=5, pady=5)
 
         # Batch size
@@ -946,11 +951,11 @@ class App(tk.Tk):
             
             att_count = 0
             if new_attendance_records:
-                att_query = "INSERT OR IGNORE INTO attendance (connection_id, user_id, timestamp) VALUES (?, ?, ?)"
+                att_query = "INSERT OR IGNORE INTO attendance (connection_id, user_id, att_id, timestamp) VALUES (?, ?, ?, ?)"
                 for att in new_attendance_records:
                     # The timestamp from the device is naive, representing local time on the device
                     timestamp_str = att.timestamp.strftime("%Y-%m-%d %H:%M:%S")
-                    db_execute(att_query, (conn_id, att.user_id, timestamp_str))
+                    db_execute(att_query, (conn_id, att.user_id, f"{conn_id}-{att.uid}", timestamp_str))
                     att_count += 1
             
             self.log_operation("Success", f"Fetch complete. New records: {att_count}", conn_id)
@@ -961,7 +966,8 @@ class App(tk.Tk):
         except Exception as e:
             self.log_operation("Error", f"Fetch Failed: {e}", conn_id)
             if is_manual:
-                self.after(0, lambda: messagebox.showerror("Operation Failed", f"An error occurred. Check logs for details.\nError: {e}"))
+                err_msg = f"An error occurred. Check logs for details.\nError: {e}"
+                self.after(0, lambda: messagebox.showerror("Operation Failed", err_msg))
         finally:
             if zk and zk.is_connect:
                 zk.disconnect()
@@ -1169,6 +1175,8 @@ class App(tk.Tk):
                 record_id_batch = []
                 synced_count = 0
 
+                last_user_attendance = {} #get the last attendance for each user in the batch to avoid duplicates
+
                 for att in unsynced_attendance:
                     if not att['odoo_machine_id']:
                         self.log_operation("Odoo Sync", f"Skipping attendance for user {att['user_id']} because their machine is not linked.", att['connection_id'])
@@ -1188,16 +1196,34 @@ class App(tk.Tk):
                         except Exception as e:
                             self.log_operation("Error", f"Could not process timezone '{att['machine_timezone']}' for record. Sending naive time. Error: {e}", att['connection_id'])
                     
-                    payload_batch.append({
-                        'user_id': att['user_id'],
-                        'timestamp': timestamp_to_send,
-                        'machine_id': att['odoo_machine_id'],
-                    })
+                    if att['user_id'] not in last_user_attendance:
+                        records = models.execute_kw(db, uid, password, 'azk.machine.proxy.attendance', 'search_read',
+                                                        [[('user_id', '=', att['user_id']), ('machine_id', '=', att['odoo_machine_id'])]],
+                                                        {
+                                                            'fields': ['timestamp'],
+                                                            'order': 'timestamp desc',
+                                                            'limit': 1
+                                                        }
+                                    )
+                        
+                        if records:
+                            last_user_attendance[att['user_id']] = records[0]['timestamp']
+                        else:
+                            last_user_attendance[att['user_id']] = None
+
+                    if not last_user_attendance[att['user_id']] or last_user_attendance[att['user_id']] < timestamp_to_send:
+                        payload_batch.append({
+                            'user_id': att['user_id'],
+                            'timestamp': timestamp_to_send,
+                            'machine_id': att['odoo_machine_id'],
+                            'att_id': att['att_id'],
+                        })
                     record_id_batch.append(att['id'])
 
-                    if len(payload_batch) >= batch_size:
+                    if len(record_id_batch) >= batch_size:
                         try:
-                            models.execute_kw(db, uid, password, 'azk.machine.proxy.attendance', 'create', [payload_batch])
+                            if payload_batch:
+                                models.execute_kw(db, uid, password, 'azk.machine.proxy.attendance', 'create', [payload_batch])
                             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                             placeholders = ','.join('?' for _ in record_id_batch)
                             db_execute(f"UPDATE attendance SET synched_time = ? WHERE id IN ({placeholders})", [now_str] + record_id_batch)
@@ -1209,9 +1235,10 @@ class App(tk.Tk):
                              self.log_operation("Error", f"Failed to create attendance batch in Odoo: {e}")
 
                 # Process any remaining records in the last batch
-                if payload_batch:
+                if record_id_batch:
                     try:
-                        models.execute_kw(db, uid, password, 'azk.machine.proxy.attendance', 'create', [payload_batch])
+                        if payload_batch:
+                            models.execute_kw(db, uid, password, 'azk.machine.proxy.attendance', 'create', [payload_batch])
                         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         placeholders = ','.join('?' for _ in record_id_batch)
                         db_execute(f"UPDATE attendance SET synched_time = ? WHERE id IN ({placeholders})", [now_str] + record_id_batch)
@@ -1228,7 +1255,8 @@ class App(tk.Tk):
 
         except Exception as e:
             self.log_operation("Error", f"Odoo Sync Failed: {e}")
-            self.after(0, lambda: messagebox.showerror("Odoo Sync Failed", f"An error occurred:\n{e}"))
+            error_msg = f"An error occurred:\n{e}"
+            self.after(0, lambda: messagebox.showerror("Odoo Sync Failed", error_msg))
         finally:
             self.after(0, self.update_status, "Ready")
 
