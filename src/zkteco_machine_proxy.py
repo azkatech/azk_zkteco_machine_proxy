@@ -954,8 +954,10 @@ class App(tk.Tk):
                 att_query = "INSERT OR IGNORE INTO attendance (connection_id, user_id, att_id, timestamp) VALUES (?, ?, ?, ?)"
                 for att in new_attendance_records:
                     # The timestamp from the device is naive, representing local time on the device
+                    # Create a unique ID using connection_id, user_id, and timestamp
+                    att_id = f"{conn_id}-{att.user_id}-{att.timestamp.strftime('%Y%m%d%H%M%S')}"
                     timestamp_str = att.timestamp.strftime("%Y-%m-%d %H:%M:%S")
-                    db_execute(att_query, (conn_id, att.user_id, f"{conn_id}-{att.uid}", timestamp_str))
+                    db_execute(att_query, (conn_id, att.user_id, att_id, timestamp_str))
                     att_count += 1
             
             self.log_operation("Success", f"Fetch complete. New records: {att_count}", conn_id)
