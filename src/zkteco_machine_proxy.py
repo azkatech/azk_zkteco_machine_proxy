@@ -954,8 +954,14 @@ class App(tk.Tk):
                 att_query = "INSERT OR IGNORE INTO attendance (connection_id, user_id, att_id, timestamp) VALUES (?, ?, ?, ?)"
                 for att in new_attendance_records:
                     # The timestamp from the device is naive, representing local time on the device
-                    # Create a unique ID using connection_id, user_id, and timestamp
-                    att_id = f"{conn_id}-{att.user_id}-{att.timestamp.strftime('%Y%m%d%H%M%S')}"
+                    # Create a unique ID using connection_id, user_id, and attendance id or timestamp
+                    # Use device's attendance ID if available, otherwise fallback to generated ID
+                    if hasattr(att, 'id') and att.id is not None:
+                        att_id = f"{conn_id}-{att.id}"
+                    else:
+                        # Fallback: generate ID using connection_id + user_id + timestamp
+                        att_id = f"{conn_id}-{att.user_id}-{att.timestamp.strftime('%Y%m%d%H%M%S')}"
+                        self.log_operation("Warning", f"Using generated attendance ID for user {att.user_id} at {att.timestamp}", conn_id)
                     timestamp_str = att.timestamp.strftime("%Y-%m-%d %H:%M:%S")
                     db_execute(att_query, (conn_id, att.user_id, att_id, timestamp_str))
                     att_count += 1
