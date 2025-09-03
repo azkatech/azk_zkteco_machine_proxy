@@ -20,7 +20,7 @@ import pytz
 
 # --- Configuration ---
 DB_FILE = 'local_zkteco_proxy.db'
-VERSION_NUM = '1.0.2'
+VERSION_NUM = '1.0.3'
 
 # --- Database Functions ---
 def init_db():
